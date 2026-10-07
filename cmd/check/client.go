@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -84,4 +85,33 @@ func (r *response) mustOrder(before, after string) error {
 		return fmt.Errorf("响应顺序不符合预期，%q 应出现在 %q 之前：%s", before, after, text)
 	}
 	return nil
+}
+
+// parallelResult 收集并发请求的结果，按发起顺序返回。
+type parallelResult struct {
+	index int
+	reply *response
+	err   error
+}
+
+type parallelCall struct {
+	method  string
+	path    string
+	payload any
+}
+
+// callParallel 同时发出多组请求，用于验证同一事项的并发决定只能生效一次。
+func (c *client) callParallel(calls []parallelCall) []parallelResult {
+	results := make([]parallelResult, len(calls))
+	var wg sync.WaitGroup
+	for index, item := range calls {
+		wg.Add(1)
+		go func(index int, item parallelCall) {
+			defer wg.Done()
+			reply, err := c.call(item.method, item.path, item.payload)
+			results[index] = parallelResult{index: index, reply: reply, err: err}
+		}(index, item)
+	}
+	wg.Wait()
+	return results
 }

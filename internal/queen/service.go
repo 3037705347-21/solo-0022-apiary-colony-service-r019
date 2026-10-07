@@ -33,10 +33,6 @@ type ReplaceInput struct {
 }
 
 func (s *Service) Replace(hiveID string, input ReplaceInput) (domain.Queen, error) {
-	hive, ok := s.store.GetHive(hiveID)
-	if !ok {
-		return domain.Queen{}, domain.NotFound("蜂箱", hiveID)
-	}
 	origin, err := ParseOrigin(input.Origin)
 	if err != nil {
 		return domain.Queen{}, err
@@ -57,7 +53,9 @@ func (s *Service) Replace(hiveID string, input ReplaceInput) (domain.Queen, erro
 	if reason == ReasonLoss {
 		closeState = domain.QueenLost
 	}
-	return s.store.AddQueen(hiveID, record, hive.ActiveQueenID, closeState, s.clock())
+	// 蜂箱存在性、退役判定与旧王关闭都在仓储写锁内完成，
+	// 避免并发换王在锁外读到同一只活跃蜂王而产生两只 laying 蜂王。
+	return s.store.AddQueen(hiveID, record, closeState, s.clock())
 }
 
 func (s *Service) List(hiveID string) ([]domain.Queen, error) {

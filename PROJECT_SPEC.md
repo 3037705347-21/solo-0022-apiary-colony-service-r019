@@ -46,8 +46,24 @@
 
 ### 推进蜂群状态（advance-hive-state）
 
-协调人向 `POST /hives/{hiveId}/state` 提交目标状态。服务读取当前状态，按允许的迁移表
-判断迁移是否合法，合法时写入新状态并返回迁移前后状态；非法迁移返回状态错误。
+协调人（`role=coordinator`，并携带本人 `requestedBy` 身份）向 `POST /hives/{hiveId}/state`
+提交目标状态。服务读取当前状态，按允许的迁移表判断迁移是否合法：
+
+- 低风险目标（`production`、`wintering`）合法时立即写入新状态，返回迁移前后状态。
+- 高风险目标（当前仅为终态 `retired`）**不直接生效**：只形成一条「待确认事项」并返回
+  202，蜂箱状态保持不变；同一蜂箱同时只允许存在一条待确认事项。
+- 非法迁移返回状态错误；缺少发起人身份或由非协调人发起返回校验错误。
+
+待确认事项必须由另一个角色（值守人，`role=keeper`，且身份不同于发起人）通过
+`POST /state-confirmations/{confirmationId}/decision` 作出一次决定：
+
+- `decision=approve`：服务在同一把写锁内复核蜂箱当前状态与迁移合法性，合法时写入新状态，
+  事项标记为已批准并附带实际迁移；复核失败时整体失败，不写入状态。
+- `decision=reject`：事项标记为已拒绝，**不产生任何蜂箱状态变化**。
+- 批准与拒绝都只能执行一次；重复决定、发起人自确认、同角色确认均被拒绝。
+- 待确认期间蜂箱尚未退役，巡检与换王照常进行；批准生效后退役为终态，不再回退。
+
+确认历史可通过 `GET /hives/{hiveId}/state/confirmations` 读取，与蜂箱状态来自同一份一致性快照。
 
 ### 读取蜂场状态汇总（read-apiary-status）
 
@@ -63,6 +79,8 @@
 - 允许迁移：`colonized->production`、`production->wintering`、`wintering->production`、
   `colonized->retired`、`production->retired`、`wintering->retired`。
 - 不变量：`retired` 是终态；同一状态之间的迁移视为冲突；已退役蜂箱不再接受巡检与换王。
+- 高风险推进（目标为 `retired`）必须先形成待确认事项，经发起之外的另一个角色批准后才写入；
+  每个事项只能决定一次，拒绝不改变状态；待确认期间蜂箱状态不变。
 
 ### 蜂王生命周期
 
@@ -113,7 +131,11 @@
 - `POST /apiaries/{apiaryId}/hives`、`GET /hives/{hiveId}`：安装与读回蜂箱。
 - `POST /hives/{hiveId}/inspections`、`GET /hives/{hiveId}/inspections`：提交与列出巡检。
 - `POST /hives/{hiveId}/queens`：更换蜂王。
-- `POST /hives/{hiveId}/state`：推进蜂群状态。
+- `POST /hives/{hiveId}/state`：协调人携带 `requestedBy` 与 `role=coordinator` 推进蜂群状态；
+  低风险目标即时生效，高风险目标（`retired`）返回待确认事项。
+- `POST /state-confirmations/{confirmationId}/decision`：值守人携带 `confirmedBy`、`role=keeper`
+  与 `decision`（`approve`/`reject`）确认高风险推进。
+- `GET /hives/{hiveId}/state/confirmations`：列出蜂箱的状态推进确认历史。
 - `GET /apiaries/{apiaryId}/status`：读取蜂场状态汇总。
 
 ## 校验计划
@@ -121,6 +143,8 @@
 - 构建：`go build ./...`。
 - 每个 workflow 通过 `go run ./cmd/check -workflow <id>` 走真实 HTTP 入口完成一次端到端校验。
 - 校验入口覆盖成功路径与至少一个失败路径（重复编号、未知对象、非法状态迁移或越界量测）。
+- `confirm-hive-state` workflow 覆盖高风险推进的待确认、拒绝不生效、批准一次生效、
+  重复/自确认拒绝、与巡检/换王交错以及并发确认只能生效一次。
 
 ## 测试边界
 

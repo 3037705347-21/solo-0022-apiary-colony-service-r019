@@ -77,10 +77,86 @@ func (s *Service) Hive(id string) (domain.Hive, error) {
 	return hive, nil
 }
 
-func (s *Service) AdvanceHiveState(hiveID, target string) (domain.Transition, error) {
-	to, err := ParseHiveState(target)
+type AdvanceHiveStateInput struct {
+	Target      string
+	RequestedBy string
+	Role        string
+}
+
+// AdvanceHiveStateResult 区分即时生效的迁移与仅形成待确认事项两种结果。
+type AdvanceHiveStateResult struct {
+	Transition   *domain.Transition        `json:"transition,omitempty"`
+	Confirmation *domain.StateConfirmation `json:"confirmation,omitempty"`
+	// Pending 为 true 表示高风险目标仅形成待确认事项，蜂箱状态尚未改变。
+	Pending bool `json:"pending"`
+}
+
+// ConfirmHiveStateInput 是另一个角色对待确认事项作出的一次决定。
+type ConfirmHiveStateInput struct {
+	ConfirmedBy string
+	Role        string
+	Decision    string
+	Reason      string
+}
+
+func (s *Service) AdvanceHiveState(hiveID string, input AdvanceHiveStateInput) (AdvanceHiveStateResult, error) {
+	to, err := ParseHiveState(input.Target)
 	if err != nil {
-		return domain.Transition{}, err
+		return AdvanceHiveStateResult{}, err
 	}
-	return s.store.AdvanceHive(hiveID, to, s.clock())
+	role, err := ParseActorRole("role", input.Role)
+	if err != nil {
+		return AdvanceHiveStateResult{}, err
+	}
+	if role != domain.RoleCoordinator {
+		return AdvanceHiveStateResult{}, domain.Invalid(
+			"role", "只有片区协调人（%s）可以发起蜂群状态推进", domain.RoleCoordinator)
+	}
+	requester, err := domain.ParseActorID(input.RequestedBy)
+	if err != nil {
+		return AdvanceHiveStateResult{}, err
+	}
+	now := s.clock()
+	if domain.IsHighRiskTarget(to) {
+		confirmation, err := s.store.RequestHiveState(hiveID, to, requester, role, now)
+		if err != nil {
+			return AdvanceHiveStateResult{}, err
+		}
+		return AdvanceHiveStateResult{Confirmation: &confirmation, Pending: true}, nil
+	}
+	transition, err := s.store.AdvanceHive(hiveID, to, now)
+	if err != nil {
+		return AdvanceHiveStateResult{}, err
+	}
+	return AdvanceHiveStateResult{Transition: &transition}, nil
+}
+
+// ConfirmHiveState 由发起之外的另一个角色对待确认事项作出唯一一次确认。
+func (s *Service) ConfirmHiveState(confirmationID string, input ConfirmHiveStateInput) (domain.StateConfirmation, error) {
+	role, err := ParseActorRole("role", input.Role)
+	if err != nil {
+		return domain.StateConfirmation{}, err
+	}
+	if role != domain.RoleKeeper {
+		return domain.StateConfirmation{}, domain.Invalid(
+			"role", "只有蜂场值守人（%s）可以确认高风险状态推进", domain.RoleKeeper)
+	}
+	confirmer, err := domain.ParseActorID(input.ConfirmedBy)
+	if err != nil {
+		return domain.StateConfirmation{}, err
+	}
+	approved, err := ParseConfirmationDecision(input.Decision)
+	if err != nil {
+		return domain.StateConfirmation{}, err
+	}
+	reason := domain.TrimText(input.Reason)
+	if count := len([]rune(reason)); count > 200 {
+		return domain.StateConfirmation{}, domain.Invalid("reason", "reason 长度不能超过 %d 个字符", 200)
+	}
+	return s.store.DecideHiveState(confirmationID, approved, confirmer, role, reason, s.clock())
+}
+
+// Confirmations 读取蜂箱的状态推进确认历史。
+func (s *Service) Confirmations(hiveID string) ([]domain.StateConfirmation, error) {
+	return s.store.ListConfirmations(hiveID)
 }

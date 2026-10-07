@@ -10,6 +10,8 @@ func (s *Server) register() {
 
 	s.mux.HandleFunc("GET /hives/{hiveId}", s.handleGetHive)
 	s.mux.HandleFunc("POST /hives/{hiveId}/state", s.handleAdvanceHiveState)
+	s.mux.HandleFunc("GET /hives/{hiveId}/state/confirmations", s.handleListConfirmations)
+	s.mux.HandleFunc("POST /state-confirmations/{confirmationId}/decision", s.handleConfirmationDecision)
 	s.mux.HandleFunc("POST /hives/{hiveId}/inspections", s.handleRecordInspection)
 	s.mux.HandleFunc("GET /hives/{hiveId}/inspections", s.handleListInspections)
 	s.mux.HandleFunc("POST /hives/{hiveId}/queens", s.handleReplaceQueen)

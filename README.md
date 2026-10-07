@@ -45,7 +45,13 @@ go run ./cmd/check -workflow read-apiary-status
 - `POST /apiaries/{apiaryId}/hives`：输入 `id`、`model`（`langstroth`、`top_bar`、`warre`），
   成功返回 201 与状态为 `colonized` 的蜂箱。
 - `GET /hives/{hiveId}`：读回蜂箱。
-- `POST /hives/{hiveId}/state`：输入 `target`，返回迁移前后的状态。
+- `POST /hives/{hiveId}/state`：输入 `target`、`requestedBy`、`role`（发起必须为 `coordinator`）。
+  低风险目标即时返回迁移；高风险目标（`retired`）只形成待确认事项并返回 202 与
+  `{"pending":true,"confirmation":...}`，蜂箱状态不变。
+- `POST /state-confirmations/{confirmationId}/decision`：输入 `confirmedBy`、`role`
+  （确认必须为 `keeper`，且身份不同于发起人）、`decision`（`approve`/`reject`）、
+  可选 `reason`。批准在复核当前迁移合法后写入新状态；拒绝不改变状态；事项只能决定一次。
+- `GET /hives/{hiveId}/state/confirmations`：列出蜂箱的状态推进确认历史（pending/approved/rejected）。
 - `POST /hives/{hiveId}/inspections`：输入 `observedAt`（可选，RFC3339）、`colonyStrength`、
   `broodPattern`、`temper`、`miteCount`、`note`，返回巡检与派生关注项。
 - `GET /hives/{hiveId}/inspections`：列出巡检。
@@ -67,6 +73,9 @@ go run ./cmd/check -workflow read-apiary-status
 
 - 蜂群状态：`colonized` 可到 `production`，`production` 与 `wintering` 可互相切换，
   三者都可到终态 `retired`；迁移到自身视为冲突。
+- 退役（`retired`）不可回退，属于高风险推进：协调人发起后只形成待确认事项，
+  必须由另一个角色（值守人）批准才写入；拒绝不改变状态；同一事项只能决定一次；
+  待确认期间蜂箱仍可巡检与换王。
 - 已退役蜂箱不再接受巡检与换王。
 - 同一蜂箱任意时刻最多一只 `laying` 蜂王，换王会先关闭旧记录。
 - 蜂王标记色由引入年份个位推导：`1/6` 白、`2/7` 黄、`3/8` 红、`4/9` 绿、`5/0` 蓝。
@@ -88,6 +97,7 @@ go run ./cmd/check -workflow install-hive
 go run ./cmd/check -workflow record-inspection
 go run ./cmd/check -workflow replace-queen
 go run ./cmd/check -workflow advance-hive-state
+go run ./cmd/check -workflow confirm-hive-state
 go run ./cmd/check -workflow read-apiary-status
 ```
 

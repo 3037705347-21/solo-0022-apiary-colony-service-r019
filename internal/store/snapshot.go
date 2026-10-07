@@ -8,10 +8,11 @@ import (
 
 // Snapshot 是一次一致性读取的结果，供聚合与校验使用。
 type Snapshot struct {
-	Apiaries          map[string]domain.Apiary
-	Hives             map[string]domain.Hive
-	InspectionsByHive map[string][]domain.Inspection
-	QueensByHive      map[string][]domain.Queen
+	Apiaries            map[string]domain.Apiary
+	Hives               map[string]domain.Hive
+	InspectionsByHive   map[string][]domain.Inspection
+	QueensByHive        map[string][]domain.Queen
+	ConfirmationsByHive map[string][]domain.StateConfirmation
 }
 
 // ApiaryHives 返回蜂场下的蜂箱，按编号升序稳定排序。
@@ -58,6 +59,14 @@ func (s Snapshot) LayingQueen(hiveID string) (domain.Queen, bool) {
 func (s Snapshot) Queens(hiveID string) []domain.Queen {
 	items := s.QueensByHive[hiveID]
 	out := make([]domain.Queen, len(items))
+	copy(out, items)
+	return out
+}
+
+// Confirmations 返回蜂箱的状态推进确认历史，顺序按事项产生时间排列。
+func (s Snapshot) Confirmations(hiveID string) []domain.StateConfirmation {
+	items := s.ConfirmationsByHive[hiveID]
+	out := make([]domain.StateConfirmation, len(items))
 	copy(out, items)
 	return out
 }
