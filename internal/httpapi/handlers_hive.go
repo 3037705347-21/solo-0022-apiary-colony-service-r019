@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"example.com/apiary-colony-service/internal/apiary"
+	"example.com/apiary-colony-service/internal/domain"
 )
 
 type installHiveRequest struct {
@@ -12,7 +13,13 @@ type installHiveRequest struct {
 }
 
 type advanceHiveStateRequest struct {
-	Target string `json:"target"`
+	Target      string `json:"target"`
+	RequestedBy string `json:"requestedBy"`
+}
+
+type decideStateConfirmationRequest struct {
+	Decision  string `json:"decision"`
+	DecidedBy string `json:"decidedBy"`
 }
 
 func (s *Server) handleInstallHive(w http.ResponseWriter, r *http.Request) {
@@ -47,10 +54,50 @@ func (s *Server) handleAdvanceHiveState(w http.ResponseWriter, r *http.Request) 
 		writeError(w, err)
 		return
 	}
-	transition, err := s.deps.Apiary.AdvanceHiveState(r.PathValue("hiveId"), request.Target)
+	outcome, err := s.deps.Apiary.AdvanceHiveState(r.PathValue("hiveId"), apiary.AdvanceHiveStateInput{
+		Target:      request.Target,
+		RequestedBy: request.RequestedBy,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, transition)
+	if outcome.Confirmation != nil {
+		writeJSON(w, http.StatusAccepted, outcome.Confirmation)
+		return
+	}
+	writeJSON(w, http.StatusOK, outcome.Transition)
+}
+
+func (s *Server) handleDecideStateConfirmation(w http.ResponseWriter, r *http.Request) {
+	var request decideStateConfirmationRequest
+	if err := decodeJSON(w, r, &request); err != nil {
+		writeError(w, err)
+		return
+	}
+	outcome, err := s.deps.Apiary.DecideStateConfirmation(
+		r.PathValue("hiveId"),
+		r.PathValue("confirmationId"),
+		apiary.DecideStateConfirmationInput{
+			Decision:  request.Decision,
+			DecidedBy: request.DecidedBy,
+		},
+	)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, outcome.Confirmation)
+}
+
+func (s *Server) handleListStateConfirmations(w http.ResponseWriter, r *http.Request) {
+	items, err := s.deps.Apiary.ListStateConfirmations(r.PathValue("hiveId"))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if items == nil {
+		items = []domain.StateConfirmation{}
+	}
+	writeJSON(w, http.StatusOK, items)
 }

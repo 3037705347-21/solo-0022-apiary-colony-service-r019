@@ -90,6 +90,12 @@ func CanTransitionHive(from, to HiveState) bool {
 	return targets[to]
 }
 
+// RequiresConfirmation 判断目标状态是否属于高风险迁移：
+// 高风险迁移只登记待确认事项，由另一角色确认后才写入新状态。
+func RequiresConfirmation(to HiveState) bool {
+	return to == HiveRetired
+}
+
 func (h Hive) AcceptsInspection() bool {
 	return h.State != HiveRetired
 }

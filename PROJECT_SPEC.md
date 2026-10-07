@@ -47,7 +47,17 @@
 ### 推进蜂群状态（advance-hive-state）
 
 协调人向 `POST /hives/{hiveId}/state` 提交目标状态。服务读取当前状态，按允许的迁移表
-判断迁移是否合法，合法时写入新状态并返回迁移前后状态；非法迁移返回状态错误。
+判断迁移是否合法；普通目标合法时立即写入新状态并返回迁移前后状态；非法迁移返回状态错误。
+推进到高风险目标 `retired` 时，请求方必须声明提交角色（`keeper` 或 `coordinator`），
+服务只登记一条待确认事项而不改变蜂箱状态，同一蜂箱同时最多存在一条待确认事项。
+
+### 确认高风险状态迁移（confirm-hive-state）
+
+另一角色向 `POST /hives/{hiveId}/state-confirmations/{confirmationId}` 提交
+`confirm` 或 `reject` 决定。确认人角色必须与提交人不同；确认通过时在同一临界区内
+重新校验迁移并写入新状态，拒绝时不留下任何状态变化。每条确认事项只能处理一次，
+处理结果可通过 `GET /hives/{hiveId}/state-confirmations` 按提交顺序读回，
+与蜂箱状态读取保持一致。
 
 ### 读取蜂场状态汇总（read-apiary-status）
 
@@ -63,6 +73,14 @@
 - 允许迁移：`colonized->production`、`production->wintering`、`wintering->production`、
   `colonized->retired`、`production->retired`、`wintering->retired`。
 - 不变量：`retired` 是终态；同一状态之间的迁移视为冲突；已退役蜂箱不再接受巡检与换王。
+
+### 高风险迁移确认
+
+- 推进到 `retired` 属于高风险迁移，需要 `keeper` 与 `coordinator` 两个角色先后参与：
+  一方提交形成待确认事项，另一方确认后才生效。
+- 待确认事项状态：`pending`（待确认）、`confirmed`（已确认）、`rejected`（已拒绝）。
+- 不变量：未确认前蜂箱状态不变；每条事项只能处理一次；确认人与提交人角色必须不同；
+  被拒绝的事项不留下状态变化；确认记录与蜂箱状态在同一临界区写入，读取始终一致。
 
 ### 蜂王生命周期
 
@@ -90,6 +108,7 @@
 
 - 待巡检：从未巡检，或距 `asOf` 超过 14 天。
 - 有未处理关注项：该蜂箱最近一次巡检派生出至少一个关注项。
+- 待确认状态迁移：该蜂箱存在 `pending` 状态的状态确认事项，与状态计数来自同一份快照。
 - 产卵蜂王计数：该蜂场全部蜂箱中处于 `laying` 的蜂王数量。
 - `asOf` 缺省取服务当前时间；显式传入时按传入时刻计算，保证结果可复现。
 
@@ -97,7 +116,7 @@
 
 - `internal/domain`：实体、枚举、校验、领域错误与状态机迁移表。
 - `internal/store`：并发安全的内存仓储与一致性快照。
-- `internal/apiary`：蜂场与蜂箱录入、蜂箱状态迁移。
+- `internal/apiary`：蜂场与蜂箱录入、蜂箱状态迁移与高风险迁移确认。
 - `internal/inspection`：巡检接收与关注项判定。
 - `internal/queen`：蜂王更换与标记色推导。
 - `internal/status`：蜂场状态汇总聚合。
@@ -113,7 +132,9 @@
 - `POST /apiaries/{apiaryId}/hives`、`GET /hives/{hiveId}`：安装与读回蜂箱。
 - `POST /hives/{hiveId}/inspections`、`GET /hives/{hiveId}/inspections`：提交与列出巡检。
 - `POST /hives/{hiveId}/queens`：更换蜂王。
-- `POST /hives/{hiveId}/state`：推进蜂群状态。
+- `POST /hives/{hiveId}/state`：推进蜂群状态；高风险目标返回 202 与待确认事项。
+- `POST /hives/{hiveId}/state-confirmations/{confirmationId}`：确认或拒绝待确认事项。
+- `GET /hives/{hiveId}/state-confirmations`：列出状态确认历史。
 - `GET /apiaries/{apiaryId}/status`：读取蜂场状态汇总。
 
 ## 校验计划

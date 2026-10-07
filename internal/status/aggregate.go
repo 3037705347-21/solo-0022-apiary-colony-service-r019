@@ -20,28 +20,30 @@ type HiveSummary struct {
 }
 
 type Report struct {
-	ApiaryID        string         `json:"apiaryId"`
-	Name            string         `json:"name"`
-	AsOf            time.Time      `json:"asOf"`
-	HiveCount       int            `json:"hiveCount"`
-	StateCounts     map[string]int `json:"stateCounts"`
-	NeedsInspection []string       `json:"needsInspection"`
-	ConcernHives    []string       `json:"concernHives"`
-	LayingQueens    int            `json:"layingQueens"`
-	Hives           []HiveSummary  `json:"hives"`
+	ApiaryID             string         `json:"apiaryId"`
+	Name                 string         `json:"name"`
+	AsOf                 time.Time      `json:"asOf"`
+	HiveCount            int            `json:"hiveCount"`
+	StateCounts          map[string]int `json:"stateCounts"`
+	NeedsInspection      []string       `json:"needsInspection"`
+	ConcernHives         []string       `json:"concernHives"`
+	PendingConfirmations []string       `json:"pendingConfirmations"`
+	LayingQueens         int            `json:"layingQueens"`
+	Hives                []HiveSummary  `json:"hives"`
 }
 
 // BuildReport 在单份快照上完成聚合，保证计数与逐蜂箱摘要来自同一视图。
 func BuildReport(snapshot store.Snapshot, apiary domain.Apiary, asOf time.Time) Report {
 	asOf = asOf.UTC()
 	report := Report{
-		ApiaryID:        apiary.ID,
-		Name:            apiary.Name,
-		AsOf:            asOf,
-		StateCounts:     initialStateCounts(),
-		NeedsInspection: []string{},
-		ConcernHives:    []string{},
-		Hives:           []HiveSummary{},
+		ApiaryID:             apiary.ID,
+		Name:                 apiary.Name,
+		AsOf:                 asOf,
+		StateCounts:          initialStateCounts(),
+		NeedsInspection:      []string{},
+		ConcernHives:         []string{},
+		PendingConfirmations: []string{},
+		Hives:                []HiveSummary{},
 	}
 	hives := snapshot.ApiaryHives(apiary.ID)
 	report.HiveCount = len(hives)
@@ -66,6 +68,9 @@ func BuildReport(snapshot store.Snapshot, apiary domain.Apiary, asOf time.Time) 
 				report.ConcernHives = append(report.ConcernHives, hive.ID)
 			}
 		}
+		if _, ok := snapshot.PendingStateConfirmation(hive.ID); ok {
+			report.PendingConfirmations = append(report.PendingConfirmations, hive.ID)
+		}
 		if NeedsInspection(hive, asOf) {
 			report.NeedsInspection = append(report.NeedsInspection, hive.ID)
 		}
@@ -73,6 +78,7 @@ func BuildReport(snapshot store.Snapshot, apiary domain.Apiary, asOf time.Time) 
 	}
 	sort.Strings(report.NeedsInspection)
 	sort.Strings(report.ConcernHives)
+	sort.Strings(report.PendingConfirmations)
 	return report
 }
 

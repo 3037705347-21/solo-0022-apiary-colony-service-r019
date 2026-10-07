@@ -77,10 +77,73 @@ func (s *Service) Hive(id string) (domain.Hive, error) {
 	return hive, nil
 }
 
-func (s *Service) AdvanceHiveState(hiveID, target string) (domain.Transition, error) {
-	to, err := ParseHiveState(target)
+type AdvanceHiveStateInput struct {
+	Target      string
+	RequestedBy string
+}
+
+// AdvanceOutcome 是状态推进的结果：普通目标立即生效并返回迁移；
+// 高风险目标只登记待确认事项，蜂箱状态在另一角色确认前保持不变。
+type AdvanceOutcome struct {
+	Transition   *domain.Transition
+	Confirmation *domain.StateConfirmation
+}
+
+func (s *Service) AdvanceHiveState(hiveID string, input AdvanceHiveStateInput) (AdvanceOutcome, error) {
+	target, err := ParseHiveState(input.Target)
 	if err != nil {
-		return domain.Transition{}, err
+		return AdvanceOutcome{}, err
 	}
-	return s.store.AdvanceHive(hiveID, to, s.clock())
+	if !domain.RequiresConfirmation(target) {
+		transition, err := s.store.AdvanceHive(hiveID, target, s.clock())
+		if err != nil {
+			return AdvanceOutcome{}, err
+		}
+		return AdvanceOutcome{Transition: &transition}, nil
+	}
+	requestedBy, err := ParseRole("requestedBy", input.RequestedBy)
+	if err != nil {
+		return AdvanceOutcome{}, err
+	}
+	confirmation, err := s.store.RequestHiveAdvance(hiveID, target, requestedBy, s.clock())
+	if err != nil {
+		return AdvanceOutcome{}, err
+	}
+	return AdvanceOutcome{Confirmation: &confirmation}, nil
+}
+
+type DecideStateConfirmationInput struct {
+	Decision  string
+	DecidedBy string
+}
+
+// DecideOutcome 是确认处理的结果：确认时附带实际写入的迁移，拒绝时只有确认记录。
+type DecideOutcome struct {
+	Confirmation domain.StateConfirmation
+	Transition   *domain.Transition
+}
+
+func (s *Service) DecideStateConfirmation(
+	hiveID string,
+	confirmationID string,
+	input DecideStateConfirmationInput,
+) (DecideOutcome, error) {
+	decision, err := ParseDecision(input.Decision)
+	if err != nil {
+		return DecideOutcome{}, err
+	}
+	decidedBy, err := ParseRole("decidedBy", input.DecidedBy)
+	if err != nil {
+		return DecideOutcome{}, err
+	}
+	confirmation, transition, err := s.store.DecideHiveAdvance(
+		hiveID, confirmationID, decision, decidedBy, s.clock())
+	if err != nil {
+		return DecideOutcome{}, err
+	}
+	return DecideOutcome{Confirmation: confirmation, Transition: transition}, nil
+}
+
+func (s *Service) ListStateConfirmations(hiveID string) ([]domain.StateConfirmation, error) {
+	return s.store.ListStateConfirmations(hiveID)
 }

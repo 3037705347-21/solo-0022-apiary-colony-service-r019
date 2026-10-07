@@ -27,3 +27,29 @@ func ParseHiveState(value string) (domain.HiveState, error) {
 	}
 	return state, nil
 }
+
+// ParseRole 把入口层字符串收敛为受支持的角色。
+func ParseRole(field, value string) (domain.Role, error) {
+	role := domain.Role(domain.TrimText(value))
+	if !domain.ValidRole(role) {
+		return "", domain.Invalid(
+			field,
+			"%s 必须是 %s 或 %s",
+			field, domain.RoleKeeper, domain.RoleCoordinator,
+		)
+	}
+	return role, nil
+}
+
+// ParseDecision 把入口层字符串收敛为受支持的确认决定。
+func ParseDecision(value string) (domain.Decision, error) {
+	decision := domain.Decision(domain.TrimText(value))
+	if !domain.ValidDecision(decision) {
+		return "", domain.Invalid(
+			"decision",
+			"decision 必须是 %s 或 %s",
+			domain.DecisionConfirm, domain.DecisionReject,
+		)
+	}
+	return decision, nil
+}

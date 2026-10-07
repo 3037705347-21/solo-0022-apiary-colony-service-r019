@@ -62,10 +62,20 @@
       "id": "advance-hive-state",
       "name": "推进蜂群状态",
       "entry": "POST /hives/{hiveId}/state",
-      "steps": ["读取蜂箱当前状态", "按迁移表判断目标是否合法", "写入新状态并返回迁移结果"],
-      "success": "返回 200 与迁移前后状态",
-      "failure": "未知蜂箱返回未找到，非法迁移或迁移到自身返回状态错误",
+      "steps": ["读取蜂箱当前状态", "按迁移表判断目标是否合法", "高风险目标只登记待确认事项，其余直接写入新状态并返回迁移结果"],
+      "success": "普通目标返回 200 与迁移前后状态，高风险目标返回 202 与待确认事项且蜂箱状态不变",
+      "failure": "未知蜂箱返回未找到，非法迁移或迁移到自身返回状态错误，已有待确认事项时重复提交返回冲突",
       "verification": "校验入口执行合法迁移与非法回退，断言两种结果",
+      "module_ids": ["httpapi", "apiary", "domain", "store"]
+    },
+    {
+      "id": "confirm-hive-state",
+      "name": "确认高风险状态迁移",
+      "entry": "POST /hives/{hiveId}/state-confirmations/{confirmationId}",
+      "steps": ["读取待确认事项", "校验确认人角色与提交人不同", "确认则在同一临界区写入新状态，拒绝则只登记决定"],
+      "success": "返回 200 与处理后的确认事项，确认后蜂箱状态与确认历史一致",
+      "failure": "未知确认返回未找到，同角色确认或重复处理返回冲突，非法决定返回校验错误",
+      "verification": "校验入口覆盖未确认不生效、同角色拒绝、拒绝不留状态变化、确认只生效一次",
       "module_ids": ["httpapi", "apiary", "domain", "store"]
     },
     {
